@@ -18,7 +18,7 @@ function el<K extends keyof HTMLElementTagNameMap>(
 const app = el("div", { className: "app" });
 document.body.appendChild(app);
 
-const title = el("h1", { text: "Quaint Paint" });
+const title = el("h1", { text: "Paint" });
 app.appendChild(title);
 
 const toolbar = el("div", { className: "toolbar" });
@@ -26,6 +26,12 @@ app.appendChild(toolbar);
 
 const clearBtn = el("button", { className: "btn", text: "Clear" });
 toolbar.appendChild(clearBtn);
+
+const undoBtn = el("button", { className: "btn", text: "Undo" });
+toolbar.appendChild(undoBtn);
+
+const redoBtn = el("button", { className: "btn", text: "Redo" });
+toolbar.appendChild(redoBtn);
 
 const canvas = el("canvas", {
   className: "sketch",
@@ -41,6 +47,7 @@ interface Point {
   y: number;
 }
 let strokeList: Point[][] = [];
+let redoStack: Point[][] = [];
 let isDrawing = false;
 
 /* ---------- Functions ---------- */
@@ -71,6 +78,7 @@ function beginStroke(ev: PointerEvent) {
   ev.preventDefault();
   (ev.target as Element).setPointerCapture?.(ev.pointerId);
   isDrawing = true;
+  redoStack = [];
   const newStroke: Point[] = [];
   strokeList.push(newStroke);
   const p = posFromPointer(ev);
@@ -103,5 +111,21 @@ canvas.addEventListener("pointercancel", endStroke);
 /* ---------- ClearBtn ---------- */
 clearBtn.addEventListener("click", () => {
   strokeList = [];
+  redoStack = [];
+  canvas.dispatchEvent(new CustomEvent("drawing-changed"));
+});
+
+/* ---------- Redo/Undo ---------- */
+undoBtn.addEventListener("click", () => {
+  if (strokeList.length === 0) return;
+  const lastStroke = strokeList.pop()!;
+  redoStack.push(lastStroke);
+  canvas.dispatchEvent(new CustomEvent("drawing-changed"));
+});
+
+redoBtn.addEventListener("click", () => {
+  if (redoStack.length === 0) return;
+  const lastUndoneStroke = redoStack.pop()!;
+  strokeList.push(lastUndoneStroke);
   canvas.dispatchEvent(new CustomEvent("drawing-changed"));
 });
