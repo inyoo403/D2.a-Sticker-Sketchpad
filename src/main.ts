@@ -5,13 +5,13 @@ function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   opts?: { className?: string; text?: string; attrs?: Record<string, string> },
 ): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (opts?.className) node.className = opts.className;
-  if (opts?.text) node.textContent = opts.text;
+  const el = document.createElement(tag);
+  if (opts?.className) el.className = opts.className;
+  if (opts?.text) el.textContent = opts.text;
   if (opts?.attrs) {
-    for (const [k, v] of Object.entries(opts.attrs)) node.setAttribute(k, v);
+    for (const [k, v] of Object.entries(opts.attrs)) el.setAttribute(k, v);
   }
-  return node;
+  return el;
 }
 
 /* ---------- Layout ---------- */
@@ -35,45 +35,73 @@ app.appendChild(canvas);
 
 const ctx = canvas.getContext("2d")!;
 
-/* ---------- Drawing ---------- */
-let drawing = false;
-let lastX = 0;
-let lastY = 0;
+/* ---------- State ---------- */
+interface Point {
+  x: number;
+  y: number;
+}
+let strokeList: Point[][] = [];
+let isDrawing = false;
 
-function pos(ev: PointerEvent) {
+/* ---------- Functions ---------- */
+function posFromPointer(ev: PointerEvent): Point {
   const r = canvas.getBoundingClientRect();
   return { x: ev.clientX - r.left, y: ev.clientY - r.top };
 }
 
-canvas.addEventListener("pointerdown", (ev) => {
-  ev.preventDefault();
-  (ev.target as Element).setPointerCapture?.(ev.pointerId);
-  const p = pos(ev);
-  drawing = true;
-  lastX = p.x;
-  lastY = p.y;
-});
-
-canvas.addEventListener("pointermove", (ev) => {
-  if (!drawing) return;
-  const p = pos(ev);
+function redraw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.strokeStyle = "#0b57d0";
   ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(lastX, lastY);
-  ctx.lineTo(p.x, p.y);
-  ctx.stroke();
-  lastX = p.x;
-  lastY = p.y;
-});
 
-canvas.addEventListener("pointerup", () => (drawing = false));
-canvas.addEventListener("pointerleave", () => (drawing = false));
-canvas.addEventListener("pointercancel", () => (drawing = false));
+  for (const stroke of strokeList) {
+    if (stroke.length < 2) continue;
+    ctx.beginPath();
+    ctx.moveTo(stroke[0].x, stroke[0].y);
+    for (let i = 1; i < stroke.length; i++) {
+      ctx.lineTo(stroke[i].x, stroke[i].y);
+    }
+    ctx.stroke();
+  }
+}
 
-/* ---------- Clear ---------- */
+function beginStroke(ev: PointerEvent) {
+  ev.preventDefault();
+  (ev.target as Element).setPointerCapture?.(ev.pointerId);
+  isDrawing = true;
+  const newStroke: Point[] = [];
+  strokeList.push(newStroke);
+  const p = posFromPointer(ev);
+  newStroke.push(p);
+}
+
+function drawStroke(ev: PointerEvent) {
+  if (!isDrawing) return;
+  const p = posFromPointer(ev);
+  const currentStroke = strokeList[strokeList.length - 1];
+  currentStroke.push(p);
+  canvas.dispatchEvent(new CustomEvent("drawing-changed"));
+}
+
+function endStroke(ev: PointerEvent) {
+  if (!isDrawing) return;
+  isDrawing = false;
+  (ev.target as Element).releasePointerCapture?.(ev.pointerId);
+  console.log("Line finished. Total lines:", strokeList.length);
+  console.log("Current data:", strokeList);
+}
+
+canvas.addEventListener("drawing-changed", redraw);
+canvas.addEventListener("pointerdown", beginStroke);
+canvas.addEventListener("pointermove", drawStroke);
+canvas.addEventListener("pointerup", endStroke);
+canvas.addEventListener("pointerleave", endStroke);
+canvas.addEventListener("pointercancel", endStroke);
+
+/* ---------- ClearBtn ---------- */
 clearBtn.addEventListener("click", () => {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  strokeList = [];
+  canvas.dispatchEvent(new CustomEvent("drawing-changed"));
 });
