@@ -18,7 +18,7 @@ function el<K extends keyof HTMLElementTagNameMap>(
 const app = el("div", { className: "app" });
 document.body.appendChild(app);
 
-const title = el("h1", { text: "Paint" });
+const title = el("h1", { text: "Quaint Paint" });
 app.appendChild(title);
 
 const toolbar = el("div", { className: "toolbar" });
