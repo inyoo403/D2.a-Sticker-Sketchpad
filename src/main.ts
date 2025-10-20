@@ -33,6 +33,12 @@ toolbar.appendChild(undoBtn);
 const redoBtn = el("button", { className: "btn", text: "Redo" });
 toolbar.appendChild(redoBtn);
 
+const thinBtn = el("button", { className: "btn", text: "Thin" });
+toolbar.appendChild(thinBtn);
+
+const thickBtn = el("button", { className: "btn", text: "Thick" });
+toolbar.appendChild(thickBtn);
+
 const canvas = el("canvas", {
   className: "sketch",
   attrs: { width: "256", height: "256" },
@@ -54,7 +60,7 @@ interface Displayable {
 class MarkerLine implements Displayable {
   private points: Point[] = [];
 
-  constructor(initial: Point) {
+  constructor(initial: Point, private width: number) {
     this.points.push(initial);
   }
 
@@ -64,6 +70,8 @@ class MarkerLine implements Displayable {
 
   display(ctx: CanvasRenderingContext2D): void {
     if (this.points.length < 2) return;
+    ctx.save();
+    ctx.lineWidth = this.width;
     ctx.beginPath();
     ctx.moveTo(this.points[0].x, this.points[0].y);
     for (let i = 1; i < this.points.length; i++) {
@@ -71,6 +79,7 @@ class MarkerLine implements Displayable {
       ctx.lineTo(pt.x, pt.y);
     }
     ctx.stroke();
+    ctx.restore();
   }
 }
 
@@ -78,6 +87,7 @@ let displayList: Displayable[] = [];
 let redoStack: Displayable[] = [];
 let isDrawing = false;
 let activeLine: MarkerLine | null = null;
+let selectedLineWidth = 2;
 
 /* ---------- Functions ---------- */
 function posFromPointer(ev: PointerEvent): Point {
@@ -90,7 +100,6 @@ function redraw() {
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
   ctx.strokeStyle = "#0b57d0";
-  ctx.lineWidth = 2;
 
   for (const cmd of displayList) {
     cmd.display(ctx);
@@ -103,7 +112,7 @@ function beginStroke(ev: PointerEvent) {
   isDrawing = true;
   redoStack = [];
   const p = posFromPointer(ev);
-  activeLine = new MarkerLine(p);
+  activeLine = new MarkerLine(p, selectedLineWidth);
   displayList.push(activeLine);
 }
 
@@ -120,6 +129,12 @@ function endStroke(ev: PointerEvent) {
   (ev.target as Element).releasePointerCapture?.(ev.pointerId);
   activeLine = null;
   console.log("Line finished. Total commands:", displayList.length);
+}
+
+function setActiveTool(width: number) {
+  selectedLineWidth = width;
+  thinBtn.classList.toggle("selected", width === 2);
+  thickBtn.classList.toggle("selected", width === 6);
 }
 
 canvas.addEventListener("drawing-changed", redraw);
@@ -150,3 +165,8 @@ redoBtn.addEventListener("click", () => {
   displayList.push(lastUndoneStroke);
   canvas.dispatchEvent(new CustomEvent("drawing-changed"));
 });
+
+thinBtn.addEventListener("click", () => setActiveTool(2));
+thickBtn.addEventListener("click", () => setActiveTool(6));
+
+setActiveTool(2);
