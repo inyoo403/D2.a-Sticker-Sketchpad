@@ -57,6 +57,22 @@ interface Displayable {
   display(ctx: CanvasRenderingContext2D): void;
 }
 
+class ToolPreview implements Displayable {
+  constructor(private center: Point, private width: number) {}
+  display(ctx: CanvasRenderingContext2D): void {
+    const r = Math.max(1, this.width / 2);
+    ctx.save();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "#0b57d0cc";
+    ctx.fillStyle = "#ffffff99";
+    ctx.beginPath();
+    ctx.arc(this.center.x, this.center.y, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
 class MarkerLine implements Displayable {
   private points: Point[] = [];
 
@@ -87,6 +103,7 @@ let displayList: Displayable[] = [];
 let redoStack: Displayable[] = [];
 let isDrawing = false;
 let activeLine: MarkerLine | null = null;
+let currentPreview: Displayable | null = null;
 let selectedLineWidth = 2;
 
 /* ---------- Functions ---------- */
@@ -104,11 +121,16 @@ function redraw() {
   for (const cmd of displayList) {
     cmd.display(ctx);
   }
+
+  if (currentPreview) {
+    currentPreview.display(ctx);
+  }
 }
 
 function beginStroke(ev: PointerEvent) {
   ev.preventDefault();
   (ev.target as Element).setPointerCapture?.(ev.pointerId);
+  currentPreview = null;
   isDrawing = true;
   redoStack = [];
   const p = posFromPointer(ev);
@@ -128,6 +150,9 @@ function endStroke(ev: PointerEvent) {
   isDrawing = false;
   (ev.target as Element).releasePointerCapture?.(ev.pointerId);
   activeLine = null;
+  const p = posFromPointer(ev);
+  currentPreview = new ToolPreview(p, selectedLineWidth);
+  canvas.dispatchEvent(new CustomEvent("drawing-changed"));
   console.log("Line finished. Total commands:", displayList.length);
 }
 
@@ -140,8 +165,18 @@ function setActiveTool(width: number) {
 canvas.addEventListener("drawing-changed", redraw);
 canvas.addEventListener("pointerdown", beginStroke);
 canvas.addEventListener("pointermove", drawStroke);
+canvas.addEventListener("pointermove", (ev) => {
+  if (isDrawing) return;
+  const p = posFromPointer(ev);
+  currentPreview = new ToolPreview(p, selectedLineWidth);
+  canvas.dispatchEvent(new CustomEvent("drawing-changed"));
+});
 canvas.addEventListener("pointerup", endStroke);
 canvas.addEventListener("pointerleave", endStroke);
+canvas.addEventListener("pointerout", () => {
+  currentPreview = null;
+  canvas.dispatchEvent(new CustomEvent("drawing-changed"));
+});
 canvas.addEventListener("pointercancel", endStroke);
 
 /* ---------- ClearBtn ---------- */
