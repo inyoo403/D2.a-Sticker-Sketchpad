@@ -46,9 +46,38 @@ interface Point {
   x: number;
   y: number;
 }
-let strokeList: Point[][] = [];
-let redoStack: Point[][] = [];
+
+interface Displayable {
+  display(ctx: CanvasRenderingContext2D): void;
+}
+
+class MarkerLine implements Displayable {
+  private points: Point[] = [];
+
+  constructor(initial: Point) {
+    this.points.push(initial);
+  }
+
+  drag(p: Point) {
+    this.points.push(p);
+  }
+
+  display(ctx: CanvasRenderingContext2D): void {
+    if (this.points.length < 2) return;
+    ctx.beginPath();
+    ctx.moveTo(this.points[0].x, this.points[0].y);
+    for (let i = 1; i < this.points.length; i++) {
+      const pt = this.points[i];
+      ctx.lineTo(pt.x, pt.y);
+    }
+    ctx.stroke();
+  }
+}
+
+let displayList: Displayable[] = [];
+let redoStack: Displayable[] = [];
 let isDrawing = false;
+let activeLine: MarkerLine | null = null;
 
 /* ---------- Functions ---------- */
 function posFromPointer(ev: PointerEvent): Point {
@@ -63,14 +92,8 @@ function redraw() {
   ctx.strokeStyle = "#0b57d0";
   ctx.lineWidth = 2;
 
-  for (const stroke of strokeList) {
-    if (stroke.length < 2) continue;
-    ctx.beginPath();
-    ctx.moveTo(stroke[0].x, stroke[0].y);
-    for (let i = 1; i < stroke.length; i++) {
-      ctx.lineTo(stroke[i].x, stroke[i].y);
-    }
-    ctx.stroke();
+  for (const cmd of displayList) {
+    cmd.display(ctx);
   }
 }
 
@@ -79,17 +102,15 @@ function beginStroke(ev: PointerEvent) {
   (ev.target as Element).setPointerCapture?.(ev.pointerId);
   isDrawing = true;
   redoStack = [];
-  const newStroke: Point[] = [];
-  strokeList.push(newStroke);
   const p = posFromPointer(ev);
-  newStroke.push(p);
+  activeLine = new MarkerLine(p);
+  displayList.push(activeLine);
 }
 
 function drawStroke(ev: PointerEvent) {
-  if (!isDrawing) return;
+  if (!isDrawing || !activeLine) return;
   const p = posFromPointer(ev);
-  const currentStroke = strokeList[strokeList.length - 1];
-  currentStroke.push(p);
+  activeLine.drag(p);
   canvas.dispatchEvent(new CustomEvent("drawing-changed"));
 }
 
@@ -97,8 +118,8 @@ function endStroke(ev: PointerEvent) {
   if (!isDrawing) return;
   isDrawing = false;
   (ev.target as Element).releasePointerCapture?.(ev.pointerId);
-  console.log("Line finished. Total lines:", strokeList.length);
-  console.log("Current data:", strokeList);
+  activeLine = null;
+  console.log("Line finished. Total commands:", displayList.length);
 }
 
 canvas.addEventListener("drawing-changed", redraw);
@@ -110,15 +131,15 @@ canvas.addEventListener("pointercancel", endStroke);
 
 /* ---------- ClearBtn ---------- */
 clearBtn.addEventListener("click", () => {
-  strokeList = [];
+  displayList = [];
   redoStack = [];
   canvas.dispatchEvent(new CustomEvent("drawing-changed"));
 });
 
 /* ---------- Redo/Undo ---------- */
 undoBtn.addEventListener("click", () => {
-  if (strokeList.length === 0) return;
-  const lastStroke = strokeList.pop()!;
+  if (displayList.length === 0) return;
+  const lastStroke = displayList.pop()!;
   redoStack.push(lastStroke);
   canvas.dispatchEvent(new CustomEvent("drawing-changed"));
 });
@@ -126,6 +147,6 @@ undoBtn.addEventListener("click", () => {
 redoBtn.addEventListener("click", () => {
   if (redoStack.length === 0) return;
   const lastUndoneStroke = redoStack.pop()!;
-  strokeList.push(lastUndoneStroke);
+  displayList.push(lastUndoneStroke);
   canvas.dispatchEvent(new CustomEvent("drawing-changed"));
 });
