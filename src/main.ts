@@ -21,24 +21,36 @@ document.body.appendChild(app);
 const title = el("h1", { text: "Paint" });
 app.appendChild(title);
 
-const toolbar = el("div", { className: "toolbar" });
-app.appendChild(toolbar);
+const toolbarTop = el("div", { className: "toolbar" });
+const toolbarMid = el("div", { className: "toolbar" });
+const toolbarBottom = el("div", { className: "toolbar" });
+app.appendChild(toolbarTop);
+app.appendChild(toolbarMid);
+app.appendChild(toolbarBottom);
 
+/* Top: Clear / Undo / Redo */
 const clearBtn = el("button", { className: "btn", text: "Clear" });
-toolbar.appendChild(clearBtn);
-
 const undoBtn = el("button", { className: "btn", text: "Undo" });
-toolbar.appendChild(undoBtn);
-
 const redoBtn = el("button", { className: "btn", text: "Redo" });
-toolbar.appendChild(redoBtn);
+toolbarTop.appendChild(clearBtn);
+toolbarTop.appendChild(undoBtn);
+toolbarTop.appendChild(redoBtn);
 
+/* Mid: Thin / Thick */
 const thinBtn = el("button", { className: "btn", text: "Thin" });
-toolbar.appendChild(thinBtn);
-
 const thickBtn = el("button", { className: "btn", text: "Thick" });
-toolbar.appendChild(thickBtn);
+toolbarMid.appendChild(thinBtn);
+toolbarMid.appendChild(thickBtn);
 
+/* Bottom: 🍎 🍌 🥝 */
+const appleBtn = el("button", { className: "btn", text: "🍎" });
+const bananaBtn = el("button", { className: "btn", text: "🍌" });
+const kiwiBtn = el("button", { className: "btn", text: "🥝" });
+toolbarBottom.appendChild(appleBtn);
+toolbarBottom.appendChild(bananaBtn);
+toolbarBottom.appendChild(kiwiBtn);
+
+/* Canvas */
 const canvas = el("canvas", {
   className: "sketch",
   attrs: { width: "256", height: "256" },
@@ -73,6 +85,44 @@ class ToolPreview implements Displayable {
   }
 }
 
+class StickerPreview implements Displayable {
+  constructor(
+    private center: Point,
+    private emoji: string,
+    private size: number,
+  ) {}
+  display(ctx: CanvasRenderingContext2D): void {
+    ctx.save();
+    ctx.font =
+      `${this.size}px system-ui, Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.globalAlpha = 0.9;
+    ctx.fillText(this.emoji, this.center.x, this.center.y);
+    ctx.restore();
+  }
+}
+
+class PlaceSticker implements Displayable {
+  constructor(
+    private center: Point,
+    private emoji: string,
+    private size: number,
+  ) {}
+  drag(p: Point) {
+    this.center = p;
+  }
+  display(ctx: CanvasRenderingContext2D): void {
+    ctx.save();
+    ctx.font =
+      `${this.size}px system-ui, Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(this.emoji, this.center.x, this.center.y);
+    ctx.restore();
+  }
+}
+
 class MarkerLine implements Displayable {
   private points: Point[] = [];
 
@@ -102,6 +152,11 @@ class MarkerLine implements Displayable {
 let displayList: Displayable[] = [];
 let redoStack: Displayable[] = [];
 let isDrawing = false;
+type ToolMode = "pen" | "sticker";
+let toolMode: ToolMode = "pen";
+let selectedStickerEmoji: string | null = null;
+const selectedStickerSize = 28;
+let activeSticker: PlaceSticker | null = null;
 let activeLine: MarkerLine | null = null;
 let currentPreview: Displayable | null = null;
 let selectedLineWidth = 2;
@@ -134,14 +189,32 @@ function beginStroke(ev: PointerEvent) {
   isDrawing = true;
   redoStack = [];
   const p = posFromPointer(ev);
-  activeLine = new MarkerLine(p, selectedLineWidth);
-  displayList.push(activeLine);
+  if (toolMode === "pen") {
+    currentPreview = null;
+    activeLine = new MarkerLine(p, selectedLineWidth);
+    displayList.push(activeLine);
+  } else {
+    if (!selectedStickerEmoji) return;
+    activeSticker = new PlaceSticker(
+      p,
+      selectedStickerEmoji,
+      selectedStickerSize,
+    );
+    displayList.push(activeSticker);
+    currentPreview = null;
+  }
 }
 
 function drawStroke(ev: PointerEvent) {
-  if (!isDrawing || !activeLine) return;
+  if (!isDrawing) return;
   const p = posFromPointer(ev);
-  activeLine.drag(p);
+  if (toolMode === "pen") {
+    if (!activeLine) return;
+    activeLine.drag(p);
+  } else {
+    if (!activeSticker) return;
+    activeSticker.drag(p);
+  }
   canvas.dispatchEvent(new CustomEvent("drawing-changed"));
 }
 
@@ -151,32 +224,91 @@ function endStroke(ev: PointerEvent) {
   (ev.target as Element).releasePointerCapture?.(ev.pointerId);
   activeLine = null;
   const p = posFromPointer(ev);
-  currentPreview = new ToolPreview(p, selectedLineWidth);
+  if (toolMode === "pen") {
+    activeLine = null;
+    currentPreview = new ToolPreview(p, selectedLineWidth);
+  } else {
+    activeSticker = null;
+    if (selectedStickerEmoji) {
+      currentPreview = new StickerPreview(
+        p,
+        selectedStickerEmoji,
+        selectedStickerSize,
+      );
+    }
+  }
   canvas.dispatchEvent(new CustomEvent("drawing-changed"));
-  console.log("Line finished. Total commands:", displayList.length);
 }
 
 function setActiveTool(width: number) {
+  toolMode = "pen";
   selectedLineWidth = width;
   thinBtn.classList.toggle("selected", width === 2);
   thickBtn.classList.toggle("selected", width === 6);
+  thinBtn.setAttribute("aria-pressed", String(width === 2));
+  thickBtn.setAttribute("aria-pressed", String(width === 6));
+
+  selectedStickerEmoji = null;
+  for (const b of [appleBtn, bananaBtn, kiwiBtn]) {
+    b.classList.remove("selected");
+    b.removeAttribute("aria-pressed");
+  }
+
+  if (!isDrawing && currentPreview) {
+    const rect = canvas.getBoundingClientRect();
+    const cx = Math.min(Math.max(0, rect.width / 2), canvas.width);
+    const cy = Math.min(Math.max(0, rect.height / 2), canvas.height);
+    currentPreview = new ToolPreview({ x: cx, y: cy }, selectedLineWidth);
+    canvas.dispatchEvent(new CustomEvent("drawing-changed"));
+  }
 }
+
+function selectSticker(emojiBtn: HTMLButtonElement, emoji: string) {
+  toolMode = "sticker";
+  selectedStickerEmoji = emoji;
+
+  for (const b of [thinBtn, thickBtn]) {
+    b.classList.remove("selected");
+    b.removeAttribute("aria-pressed");
+  }
+  for (const b of [appleBtn, bananaBtn, kiwiBtn]) {
+    const on = b === emojiBtn;
+    b.classList.toggle("selected", on);
+    b.setAttribute("aria-pressed", String(on));
+  }
+}
+
+appleBtn.addEventListener("click", () => selectSticker(appleBtn, "🍎"));
+bananaBtn.addEventListener("click", () => selectSticker(bananaBtn, "🍌"));
+kiwiBtn.addEventListener("click", () => selectSticker(kiwiBtn, "🥝"));
 
 canvas.addEventListener("drawing-changed", redraw);
 canvas.addEventListener("pointerdown", beginStroke);
 canvas.addEventListener("pointermove", drawStroke);
+
 canvas.addEventListener("pointermove", (ev) => {
   if (isDrawing) return;
   const p = posFromPointer(ev);
-  currentPreview = new ToolPreview(p, selectedLineWidth);
+  if (toolMode === "pen") {
+    currentPreview = new ToolPreview(p, selectedLineWidth);
+  } else if (selectedStickerEmoji) {
+    currentPreview = new StickerPreview(
+      p,
+      selectedStickerEmoji,
+      selectedStickerSize,
+    );
+  }
   canvas.dispatchEvent(new CustomEvent("drawing-changed"));
 });
+
 canvas.addEventListener("pointerup", endStroke);
 canvas.addEventListener("pointerleave", endStroke);
+
 canvas.addEventListener("pointerout", () => {
   currentPreview = null;
   canvas.dispatchEvent(new CustomEvent("drawing-changed"));
 });
+
 canvas.addEventListener("pointercancel", endStroke);
 
 /* ---------- ClearBtn ---------- */
