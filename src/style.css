@@ -20,21 +20,31 @@ body {
 }
 
 .app {
-  margin: 32px;
+  font-family:
+    system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Arial, Apple Color
+    Emoji, Segoe UI Emoji, Noto Color Emoji;
+  color: #1f2328;
 }
 
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 12px;
+  margin: 8px 0;
 }
 
 .btn {
-  border: 1px solid #c8cdd8;
-  background: white;
-  padding: 8px 14px;
-  border-radius: 12px;
+  padding: 10px 14px;
+  border: 1px solid #d0d7de;
+  border-radius: 10px;
+  background: #f6f8fa;
   cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.btn:hover {
+  background: #eef1f4;
 }
 
 .btn.selected {
@@ -44,16 +54,13 @@ body {
   transition: all 0.15s ease;
 }
 
-.btn:active {
-  background: #f2f2f2;
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.15);
+.stickerRow .btn {
+  font-size: 18px;
+  padding: 8px 10px;
 }
 
 .sketch {
-  width: 256px;
-  height: 256px;
-  display: block;
-  background: #e0e0e0;
-  border: 1px solid #000;
-  filter: drop-shadow(0 8px 20px rgba(0, 0, 0, 0.12));
+  border: 1px solid #d0d7de;
+  border-radius: 8px;
+  background: #fff;
 }

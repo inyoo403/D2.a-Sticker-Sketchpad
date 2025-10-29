@@ -32,9 +32,11 @@ app.appendChild(toolbarBottom);
 const clearBtn = el("button", { className: "btn", text: "Clear" });
 const undoBtn = el("button", { className: "btn", text: "Undo" });
 const redoBtn = el("button", { className: "btn", text: "Redo" });
+const exportBtn = el("button", { className: "btn", text: "Export 1024" });
 toolbarTop.appendChild(clearBtn);
 toolbarTop.appendChild(undoBtn);
 toolbarTop.appendChild(redoBtn);
+toolbarTop.appendChild(exportBtn);
 
 /* Mid: Thin / Thick */
 const thinBtn = el("button", { className: "btn", text: "Thin" });
@@ -55,6 +57,11 @@ const canvas = el("canvas", {
 app.appendChild(canvas);
 
 const ctx = canvas.getContext("2d")!;
+
+const THIN_WIDTH = 3;
+const THICK_WIDTH = 9;
+const DEFAULT_STICKER_SIZE = 36;
+const PREVIEW_ALPHA = 0.85;
 
 /* ---------- State ---------- */
 type Point = { x: number; y: number };
@@ -104,6 +111,7 @@ function createToolPreviewPen(center: Point, width: number): Displayable {
       ctx.lineWidth = 1.5;
       ctx.strokeStyle = "#0b57d0cc";
       ctx.fillStyle = "#ffffff99";
+      ctx.globalAlpha = PREVIEW_ALPHA;
       ctx.beginPath();
       ctx.arc(center.x, center.y, r, 0, Math.PI * 2);
       ctx.fill();
@@ -112,7 +120,6 @@ function createToolPreviewPen(center: Point, width: number): Displayable {
     },
   };
 }
-
 function createStickerPreview(
   center: Point,
   emoji: string,
@@ -125,7 +132,7 @@ function createStickerPreview(
         `${size}px system-ui, Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.globalAlpha = 0.9;
+      ctx.globalAlpha = PREVIEW_ALPHA;
       ctx.fillText(emoji, center.x, center.y);
       ctx.restore();
     },
@@ -159,7 +166,6 @@ type ToolMode = "pen" | "sticker";
 let toolMode: ToolMode = "pen";
 
 type StickerDef = { glyph: string; size: number };
-const DEFAULT_STICKER_SIZE = 28;
 
 const STICKERS: StickerDef[] = [
   { glyph: "🍎", size: DEFAULT_STICKER_SIZE },
@@ -171,7 +177,7 @@ let selectedStickerIdx: number | null = null;
 
 let activeCommand: (Displayable & { drag?: (p: Point) => void }) | null = null;
 let currentPreview: Displayable | null = null;
-let selectedLineWidth = 2;
+let selectedLineWidth = THIN_WIDTH;
 
 function renderStickerButtons() {
   stickerRow.innerHTML = "";
@@ -211,6 +217,38 @@ function redraw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   for (const cmd of displayList) cmd.display(ctx);
   if (currentPreview) currentPreview.display(ctx);
+}
+
+function exportHighResPNG() {
+  const srcW = canvas.width;
+  const srcH = canvas.height;
+  const SCALE = 4;
+
+  const out = document.createElement("canvas");
+  out.width = srcW * SCALE;
+  out.height = srcH * SCALE;
+
+  const octx = out.getContext("2d")!;
+  octx.save();
+  octx.scale(SCALE, SCALE);
+  octx.fillStyle = "#fff";
+  octx.fillRect(0, 0, out.width / SCALE, out.height / SCALE);
+
+  for (const cmd of displayList) {
+    cmd.display(octx);
+  }
+
+  octx.restore();
+  out.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const ts = new Date().toISOString().replace(/[:.]/g, "-");
+    a.download = `sketchpad-${srcW * SCALE}x${srcH * SCALE}-${ts}.png`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, "image/png");
 }
 
 /* ---------- Stroke lifecycle ---------- */
@@ -262,10 +300,10 @@ function endStroke(ev: PointerEvent) {
 function setActiveTool(width: number) {
   toolMode = "pen";
   selectedLineWidth = width;
-  thinBtn.classList.toggle("selected", width === 2);
-  thickBtn.classList.toggle("selected", width === 6);
-  thinBtn.setAttribute("aria-pressed", String(width === 2));
-  thickBtn.setAttribute("aria-pressed", String(width === 6));
+  thinBtn.classList.toggle("selected", width === THIN_WIDTH);
+  thickBtn.classList.toggle("selected", width === THICK_WIDTH);
+  thinBtn.setAttribute("aria-pressed", String(width === THIN_WIDTH));
+  thickBtn.setAttribute("aria-pressed", String(width === THICK_WIDTH));
   selectedStickerIdx = null;
   renderStickerButtons();
 }
@@ -310,8 +348,7 @@ redoBtn.addEventListener("click", () => {
 
 /* ---------- Event wiring ---------- */
 renderStickerButtons();
-setActiveTool(2);
-
+setActiveTool(THIN_WIDTH);
 canvas.addEventListener("drawing-changed", redraw);
 canvas.addEventListener("pointerdown", beginStroke);
 canvas.addEventListener("pointermove", drawStroke);
@@ -322,5 +359,6 @@ canvas.addEventListener("pointerout", () => {
   currentPreview = null;
   canvas.dispatchEvent(new CustomEvent("drawing-changed"));
 });
-thinBtn.addEventListener("click", () => setActiveTool(2));
-thickBtn.addEventListener("click", () => setActiveTool(6));
+thinBtn.addEventListener("click", () => setActiveTool(THIN_WIDTH));
+thickBtn.addEventListener("click", () => setActiveTool(THICK_WIDTH));
+exportBtn.addEventListener("click", exportHighResPNG);
