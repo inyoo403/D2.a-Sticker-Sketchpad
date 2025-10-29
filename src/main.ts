@@ -44,7 +44,48 @@ const thickBtn = el("button", { className: "btn", text: "Thick" });
 toolbarMid.appendChild(thinBtn);
 toolbarMid.appendChild(thickBtn);
 
-/* Bottom: Stickers (data-driven) + Custom */
+let markerHue = 210;
+let stickerRotationDeg = 0;
+
+/* Hue / Rotation sliders  */
+const hueWrap = el("div", { className: "control sliderRow" });
+const hueLabel = el("label", { text: "Color" });
+const hueInput = el("input", {
+  attrs: { type: "range", min: "0", max: "360", value: String(markerHue) },
+}) as HTMLInputElement;
+hueInput.classList.add("color-range");
+hueWrap.append(hueLabel, hueInput);
+
+const rotWrap = el("div", { className: "control sliderRow" });
+const rotLabel = el("label", { text: "Rotate" });
+const rotInput = el("input", {
+  attrs: {
+    type: "range",
+    min: "0",
+    max: "360",
+    value: String(stickerRotationDeg),
+  },
+}) as HTMLInputElement;
+rotWrap.append(rotLabel, rotInput);
+
+toolbarMid.append(hueWrap, rotWrap);
+
+hueInput.addEventListener("input", () => {
+  markerHue = Number(hueInput.value) || 0;
+  updateColorSliderUI();
+  if (!isDrawing && toolMode === "pen") {
+    canvas.dispatchEvent(new CustomEvent("drawing-changed"));
+  }
+});
+
+rotInput.addEventListener("input", () => {
+  stickerRotationDeg = Number(rotInput.value) || 0;
+  if (!isDrawing && toolMode === "sticker" && selectedStickerIdx != null) {
+    canvas.dispatchEvent(new CustomEvent("drawing-changed"));
+  }
+});
+
+/* Custom */
 const stickerRow = el("div", { className: "stickerRow" });
 const customBtn = el("button", { className: "btn", text: "Custom +" });
 toolbarBottom.append(stickerRow, customBtn);
@@ -75,7 +116,7 @@ interface Displayable {
   display(ctx: CanvasRenderingContext2D): void;
 }
 
-function createMarkerLine(initial: Point, width: number) {
+function createMarkerLine(initial: Point, width: number, color: string) {
   const pts: Point[] = [initial];
   const obj: Displayable & { drag: (p: Point) => void } = {
     drag(p: Point) {
@@ -86,10 +127,11 @@ function createMarkerLine(initial: Point, width: number) {
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
       ctx.lineWidth = width;
-      ctx.strokeStyle = "#0b57d0";
+      ctx.strokeStyle = color;
       if (pts.length < 2) {
         ctx.beginPath();
         ctx.arc(pts[0].x, pts[0].y, Math.max(1, width / 2), 0, Math.PI * 2);
+        ctx.fillStyle = color;
         ctx.fill();
       } else {
         ctx.beginPath();
@@ -103,15 +145,19 @@ function createMarkerLine(initial: Point, width: number) {
   return obj;
 }
 
-function createToolPreviewPen(center: Point, width: number): Displayable {
+function createToolPreviewPen(
+  center: Point,
+  width: number,
+  color: string,
+): Displayable {
   return {
     display(ctx) {
       const r = Math.max(1, width / 2);
       ctx.save();
       ctx.lineWidth = 1.5;
-      ctx.strokeStyle = "#0b57d0cc";
-      ctx.fillStyle = "#ffffff99";
+      ctx.strokeStyle = color;
       ctx.globalAlpha = PREVIEW_ALPHA;
+      ctx.fillStyle = color;
       ctx.beginPath();
       ctx.arc(center.x, center.y, r, 0, Math.PI * 2);
       ctx.fill();
@@ -120,26 +166,35 @@ function createToolPreviewPen(center: Point, width: number): Displayable {
     },
   };
 }
+
 function createStickerPreview(
   center: Point,
   emoji: string,
   size: number,
+  rotationDeg: number,
 ): Displayable {
   return {
     display(ctx) {
       ctx.save();
+      ctx.translate(center.x, center.y);
+      ctx.rotate((rotationDeg * Math.PI) / 180);
       ctx.font =
         `${size}px system-ui, Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.globalAlpha = PREVIEW_ALPHA;
-      ctx.fillText(emoji, center.x, center.y);
+      ctx.globalAlpha = 0.9;
+      ctx.fillText(emoji, 0, 0);
       ctx.restore();
     },
   };
 }
 
-function createPlaceSticker(initial: Point, emoji: string, size: number) {
+function createPlaceSticker(
+  initial: Point,
+  emoji: string,
+  size: number,
+  rotationDeg: number,
+) {
   let at = { ...initial };
   const obj: Displayable & { drag: (p: Point) => void } = {
     drag(p: Point) {
@@ -147,11 +202,13 @@ function createPlaceSticker(initial: Point, emoji: string, size: number) {
     },
     display(ctx) {
       ctx.save();
+      ctx.translate(at.x, at.y);
+      ctx.rotate((rotationDeg * Math.PI) / 180);
       ctx.font =
         `${size}px system-ui, Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(emoji, at.x, at.y);
+      ctx.fillText(emoji, 0, 0);
       ctx.restore();
     },
   };
@@ -203,6 +260,17 @@ function selectStickerByIndex(i: number) {
   currentPreview = null;
   canvas.dispatchEvent(new CustomEvent("drawing-changed"));
 }
+
+function hueToColor(h: number): string {
+  return `hsl(${h} 80% 45%)`;
+}
+
+function updateColorSliderUI() {
+  const color = hueToColor(markerHue);
+  hueInput.style.setProperty("--pick-color", color);
+}
+
+updateColorSliderUI();
 
 /* ---------- Custom ---------- */
 customBtn.addEventListener("click", () => {
@@ -261,12 +329,17 @@ function beginStroke(ev: PointerEvent) {
 
   const p = posFromPointer(ev);
   if (toolMode === "pen") {
-    activeCommand = createMarkerLine(p, selectedLineWidth);
+    activeCommand = createMarkerLine(
+      p,
+      selectedLineWidth,
+      hueToColor(markerHue),
+    );
   } else {
     if (selectedStickerIdx == null) return;
     const s = STICKERS[selectedStickerIdx];
-    activeCommand = createPlaceSticker(p, s.glyph, s.size);
+    activeCommand = createPlaceSticker(p, s.glyph, s.size, stickerRotationDeg);
   }
+
   displayList.push(activeCommand);
   canvas.dispatchEvent(new CustomEvent("drawing-changed"));
 }
@@ -287,14 +360,49 @@ function endStroke(ev: PointerEvent) {
 
   const p = posFromPointer(ev);
   if (toolMode === "pen") {
-    currentPreview = createToolPreviewPen(p, selectedLineWidth);
+    currentPreview = createToolPreviewPen(
+      p,
+      selectedLineWidth,
+      hueToColor(markerHue),
+    );
   } else if (selectedStickerIdx != null) {
     const s = STICKERS[selectedStickerIdx];
-    currentPreview = createStickerPreview(p, s.glyph, s.size);
+    currentPreview = createStickerPreview(
+      p,
+      s.glyph,
+      s.size,
+      stickerRotationDeg,
+    );
   }
+
   activeCommand = null;
   canvas.dispatchEvent(new CustomEvent("drawing-changed"));
 }
+
+canvas.addEventListener("pointermove", (ev) => {
+  if (isDrawing) return;
+  const p = posFromPointer(ev);
+
+  if (toolMode === "pen") {
+    currentPreview = createToolPreviewPen(
+      p,
+      selectedLineWidth,
+      hueToColor(markerHue),
+    );
+  } else if (selectedStickerIdx != null) {
+    const s = STICKERS[selectedStickerIdx];
+    currentPreview = createStickerPreview(
+      p,
+      s.glyph,
+      s.size,
+      stickerRotationDeg,
+    );
+  } else {
+    currentPreview = null;
+  }
+
+  canvas.dispatchEvent(new CustomEvent("drawing-changed"));
+});
 
 /* ---------- Tool switching ---------- */
 function setActiveTool(width: number) {
@@ -307,23 +415,6 @@ function setActiveTool(width: number) {
   selectedStickerIdx = null;
   renderStickerButtons();
 }
-
-/* ---------- Preview on hover ---------- */
-canvas.addEventListener("pointermove", (ev) => {
-  if (isDrawing) return;
-  const p = posFromPointer(ev);
-
-  if (toolMode === "pen") {
-    currentPreview = createToolPreviewPen(p, selectedLineWidth);
-  } else if (selectedStickerIdx != null) {
-    const s = STICKERS[selectedStickerIdx];
-    currentPreview = createStickerPreview(p, s.glyph, s.size);
-  } else {
-    currentPreview = null;
-  }
-
-  canvas.dispatchEvent(new CustomEvent("drawing-changed"));
-});
 
 /* ---------- Clear / Undo / Redo ---------- */
 clearBtn.addEventListener("click", () => {
