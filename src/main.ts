@@ -42,13 +42,10 @@ const thickBtn = el("button", { className: "btn", text: "Thick" });
 toolbarMid.appendChild(thinBtn);
 toolbarMid.appendChild(thickBtn);
 
-/* Bottom: 🍎 🍌 🥝 */
-const appleBtn = el("button", { className: "btn", text: "🍎" });
-const bananaBtn = el("button", { className: "btn", text: "🍌" });
-const kiwiBtn = el("button", { className: "btn", text: "🥝" });
-toolbarBottom.appendChild(appleBtn);
-toolbarBottom.appendChild(bananaBtn);
-toolbarBottom.appendChild(kiwiBtn);
+/* Bottom: Stickers (data-driven) + Custom */
+const stickerRow = el("div", { className: "stickerRow" });
+const customBtn = el("button", { className: "btn", text: "Custom +" });
+toolbarBottom.append(stickerRow, customBtn);
 
 /* Canvas */
 const canvas = el("canvas", {
@@ -161,12 +158,53 @@ let isDrawing = false;
 type ToolMode = "pen" | "sticker";
 let toolMode: ToolMode = "pen";
 
-let selectedStickerEmoji: string | null = null;
-const selectedStickerSize = 28;
+type StickerDef = { glyph: string; size: number };
+const DEFAULT_STICKER_SIZE = 28;
+
+const STICKERS: StickerDef[] = [
+  { glyph: "🍎", size: DEFAULT_STICKER_SIZE },
+  { glyph: "🍌", size: DEFAULT_STICKER_SIZE },
+  { glyph: "🥝", size: DEFAULT_STICKER_SIZE },
+];
+
+let selectedStickerIdx: number | null = null;
 
 let activeCommand: (Displayable & { drag?: (p: Point) => void }) | null = null;
 let currentPreview: Displayable | null = null;
 let selectedLineWidth = 2;
+
+function renderStickerButtons() {
+  stickerRow.innerHTML = "";
+  STICKERS.forEach((s, i) => {
+    const b = el("button", { className: "btn", text: s.glyph });
+    if (i === selectedStickerIdx) {
+      b.classList.add("selected");
+      b.setAttribute("aria-pressed", "true");
+    }
+    b.addEventListener("click", () => selectStickerByIndex(i));
+    stickerRow.appendChild(b);
+  });
+}
+
+function selectStickerByIndex(i: number) {
+  toolMode = "sticker";
+  selectedStickerIdx = i;
+  for (const b of [thinBtn, thickBtn]) {
+    b.classList.remove("selected");
+    b.removeAttribute("aria-pressed");
+  }
+  renderStickerButtons();
+  currentPreview = null;
+  canvas.dispatchEvent(new CustomEvent("drawing-changed"));
+}
+
+/* ---------- Custom ---------- */
+customBtn.addEventListener("click", () => {
+  const text = prompt("Custom sticker text (emoji/text)", "🧽");
+  if (text == null || text.trim() === "") return;
+  STICKERS.push({ glyph: text, size: DEFAULT_STICKER_SIZE });
+  selectStickerByIndex(STICKERS.length - 1);
+});
 
 /* ---------- Redraw ---------- */
 function redraw() {
@@ -187,12 +225,9 @@ function beginStroke(ev: PointerEvent) {
   if (toolMode === "pen") {
     activeCommand = createMarkerLine(p, selectedLineWidth);
   } else {
-    if (!selectedStickerEmoji) return;
-    activeCommand = createPlaceSticker(
-      p,
-      selectedStickerEmoji,
-      selectedStickerSize,
-    );
+    if (selectedStickerIdx == null) return;
+    const s = STICKERS[selectedStickerIdx];
+    activeCommand = createPlaceSticker(p, s.glyph, s.size);
   }
   displayList.push(activeCommand);
   canvas.dispatchEvent(new CustomEvent("drawing-changed"));
@@ -215,12 +250,9 @@ function endStroke(ev: PointerEvent) {
   const p = posFromPointer(ev);
   if (toolMode === "pen") {
     currentPreview = createToolPreviewPen(p, selectedLineWidth);
-  } else if (selectedStickerEmoji) {
-    currentPreview = createStickerPreview(
-      p,
-      selectedStickerEmoji,
-      selectedStickerSize,
-    );
+  } else if (selectedStickerIdx != null) {
+    const s = STICKERS[selectedStickerIdx];
+    currentPreview = createStickerPreview(p, s.glyph, s.size);
   }
   activeCommand = null;
   canvas.dispatchEvent(new CustomEvent("drawing-changed"));
@@ -230,49 +262,28 @@ function endStroke(ev: PointerEvent) {
 function setActiveTool(width: number) {
   toolMode = "pen";
   selectedLineWidth = width;
-
   thinBtn.classList.toggle("selected", width === 2);
   thickBtn.classList.toggle("selected", width === 6);
   thinBtn.setAttribute("aria-pressed", String(width === 2));
   thickBtn.setAttribute("aria-pressed", String(width === 6));
-
-  selectedStickerEmoji = null;
-  for (const b of [appleBtn, bananaBtn, kiwiBtn]) {
-    b.classList.remove("selected");
-    b.removeAttribute("aria-pressed");
-  }
-}
-
-function selectSticker(emojiBtn: HTMLButtonElement, emoji: string) {
-  toolMode = "sticker";
-  selectedStickerEmoji = emoji;
-
-  for (const b of [thinBtn, thickBtn]) {
-    b.classList.remove("selected");
-    b.removeAttribute("aria-pressed");
-  }
-  for (const b of [appleBtn, bananaBtn, kiwiBtn]) {
-    const on = b === emojiBtn;
-    b.classList.toggle("selected", on);
-    b.setAttribute("aria-pressed", String(on));
-  }
+  selectedStickerIdx = null;
+  renderStickerButtons();
 }
 
 /* ---------- Preview on hover ---------- */
 canvas.addEventListener("pointermove", (ev) => {
   if (isDrawing) return;
   const p = posFromPointer(ev);
+
   if (toolMode === "pen") {
     currentPreview = createToolPreviewPen(p, selectedLineWidth);
-  } else if (selectedStickerEmoji) {
-    currentPreview = createStickerPreview(
-      p,
-      selectedStickerEmoji,
-      selectedStickerSize,
-    );
+  } else if (selectedStickerIdx != null) {
+    const s = STICKERS[selectedStickerIdx];
+    currentPreview = createStickerPreview(p, s.glyph, s.size);
   } else {
     currentPreview = null;
   }
+
   canvas.dispatchEvent(new CustomEvent("drawing-changed"));
 });
 
@@ -298,9 +309,8 @@ redoBtn.addEventListener("click", () => {
 });
 
 /* ---------- Event wiring ---------- */
-appleBtn.addEventListener("click", () => selectSticker(appleBtn, "🍎"));
-bananaBtn.addEventListener("click", () => selectSticker(bananaBtn, "🍌"));
-kiwiBtn.addEventListener("click", () => selectSticker(kiwiBtn, "🥝"));
+renderStickerButtons();
+setActiveTool(2);
 
 canvas.addEventListener("drawing-changed", redraw);
 canvas.addEventListener("pointerdown", beginStroke);
@@ -308,12 +318,9 @@ canvas.addEventListener("pointermove", drawStroke);
 canvas.addEventListener("pointerup", endStroke);
 canvas.addEventListener("pointerleave", endStroke);
 canvas.addEventListener("pointercancel", endStroke);
-
 canvas.addEventListener("pointerout", () => {
   currentPreview = null;
   canvas.dispatchEvent(new CustomEvent("drawing-changed"));
 });
-
 thinBtn.addEventListener("click", () => setActiveTool(2));
 thickBtn.addEventListener("click", () => setActiveTool(6));
-setActiveTool(2);
